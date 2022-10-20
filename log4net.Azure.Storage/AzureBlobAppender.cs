@@ -1,29 +1,30 @@
 ﻿using log4net.Appender;
 using log4net.Azure.Storage.Extensions;
 using log4net.Core;
-using Microsoft.Azure.Storage;
-using Microsoft.Azure.Storage.Blob;
 using Microsoft.Extensions.Configuration;
 using System;
 using System.IO;
 using System.Net;
 using System.Text;
 using System.Threading.Tasks;
-using Microsoft.Azure.Storage.RetryPolicies;
+using Azure.Storage.Blobs;
+using System.Globalization;
+using Azure.Storage.Blobs.Models;
+using Azure.Storage.Blobs.Specialized;
+
 
 namespace log4net.Azure.Storage
 {
     public class AzureBlobAppender : BufferingAppenderSkeleton
     {
-        private CloudStorageAccount account;
-        private CloudBlobClient client;
-        private CloudBlobContainer container;
+        private BlobContainerClient container;
 
         public string ConnectionStringName { get; set; }
         public string ConnectionString { get; set; }
         public string ContainerName { get; set; }
         public string DirectoryName { get; set; }
         public string FileName { get; set; }
+        public string DatePattern { get; set; }
 
         public override void ActivateOptions()
         {
@@ -31,14 +32,17 @@ namespace log4net.Azure.Storage
 
             var connectionString = ConnectionString ?? GetConnectionString();
 
-            if (!CloudStorageAccount.TryParse(connectionString, out account))
+            try
             {
-                throw new ArgumentException("Missing or malformed connection string.", nameof(connectionString));
+                container = new BlobContainerClient(connectionString, ContainerName.ToLower());
+                container.CreateIfNotExists();
+
+            }
+            catch (Exception e)
+            {
+                throw new ArgumentException("Missing or malformed connection string.", nameof(connectionString), e);
             }
 
-            client = account.CreateCloudBlobClient();
-            container = client.GetContainerReference(ContainerName.ToLower());
-            container.CreateIfNotExists();
         }
 
         protected override void SendBuffer(LoggingEvent[] events)
@@ -50,19 +54,21 @@ namespace log4net.Azure.Storage
         {
             try
             {
-                var blob = container.GetAppendBlobReference(Path.Combine(DirectoryName, FileName));
+                string blobPath = Path.Combine(DirectoryName,
+                    $"{FileName}{DateTime.Now.ToString(this.DatePattern, DateTimeFormatInfo.InvariantInfo)}");
+             
                 try
                 {
-                    blob.CreateOrReplace(
-                        AccessCondition.GenerateIfNotExistsCondition(),
-                        new BlobRequestOptions() { RetryPolicy = new LinearRetry(TimeSpan.FromSeconds(1), 10) },
-                        null);
+                    var blobClient = container.GetAppendBlobClient(blobPath);
+                    blobClient.CreateIfNotExists();
+                    var message = loggingEvent.GetFormattedString(Layout);
+                    using MemoryStream memoryStream = new MemoryStream(Encoding.UTF8.GetBytes(message));
+                    blobClient.AppendBlock(memoryStream);
                 }
-                catch (StorageException ex) when (ex.RequestInformation?.HttpStatusCode == (int)HttpStatusCode.Conflict)
+                catch (Exception ex)
                 { }
 
-                var message = loggingEvent.GetFormattedString(Layout);
-                blob.AppendText(message, Encoding.UTF8);
+
             }
             catch (Exception ex)
             {
