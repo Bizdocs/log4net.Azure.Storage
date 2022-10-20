@@ -13,7 +13,8 @@ Currently available logging destination is **Blob Storage** as an **AppendBlob**
     <BufferSize value="0" />
     <ContainerName value="logs"/>
     <DirectoryName value="rsl-fws"/>
-    <FileName type="log4net.Util.PatternString" value="log_{yyyyMMdd}.log" />
+    <DatePattern value="yyyy_MM_dd&quot;.log&quot;"/>
+    <FileName value="info_" />
 
     <!-- You can either specify a connection string or use the ConnectionStringName property instead -->
 
